@@ -4,10 +4,37 @@
 import FileData from "./file-data.type";
 
 type GetPreviewFileDataOptions = {
+  /**
+   * Exact target width. Height is computed automatically if height is not provided.
+   */
+  width?: number;
+
+  /**
+   * Exact target height. Width is computed automatically if width is not provided.
+   */
+  height?: number;
+
+  /**
+   * Optional bounding box fallback if width/height are not explicitly provided.
+   */
   maxWidth?: number;
   maxHeight?: number;
+
+  /**
+   * Output quality/compression.
+   */
   quality?: number;
+
+  /**
+   * Output mime type.
+   */
   type?: 'image/webp' | 'image/jpeg';
+
+  /**
+   * Whether to allow enlarging small source images.
+   * Defaults to false.
+   */
+  allowUpscale?: boolean;
 };
 
 const loadImageElement = (file: File): Promise<HTMLImageElement> =>
@@ -53,12 +80,79 @@ const canvasToBlob = (
     );
   });
 
+const toPositiveInteger = (value: unknown): number | undefined => {
+  if (!Number.isFinite(value) || Number(value) <= 0) {
+    return undefined;
+  }
+
+  return Math.floor(Number(value));
+};
+
+const calculateTargetSize = (
+  sourceWidth: number,
+  sourceHeight: number,
+  options?: GetPreviewFileDataOptions,
+): { width: number; height: number } => {
+  const requestedWidth = toPositiveInteger(options?.width);
+  const requestedHeight = toPositiveInteger(options?.height);
+  const maxWidth = toPositiveInteger(options?.maxWidth) ?? 320;
+  const maxHeight = toPositiveInteger(options?.maxHeight) ?? 320;
+  const allowUpscale = options?.allowUpscale === true;
+
+  const aspectRatio = sourceWidth / sourceHeight;
+
+  let targetWidth: number;
+  let targetHeight: number;
+
+  if (requestedWidth && requestedHeight) {
+    /**
+     * Fit inside the requested box while preserving aspect ratio.
+     */
+    const widthScale = requestedWidth / sourceWidth;
+    const heightScale = requestedHeight / sourceHeight;
+    let scale = Math.min(widthScale, heightScale);
+
+    if (!allowUpscale) {
+      scale = Math.min(scale, 1);
+    }
+
+    targetWidth = Math.max(1, Math.round(sourceWidth * scale));
+    targetHeight = Math.max(1, Math.round(sourceHeight * scale));
+  } else if (requestedWidth) {
+    targetWidth = allowUpscale
+      ? requestedWidth
+      : Math.min(requestedWidth, sourceWidth);
+
+    targetHeight = Math.max(1, Math.round(targetWidth / aspectRatio));
+  } else if (requestedHeight) {
+    targetHeight = allowUpscale
+      ? requestedHeight
+      : Math.min(requestedHeight, sourceHeight);
+
+    targetWidth = Math.max(1, Math.round(targetHeight * aspectRatio));
+  } else {
+    const widthScale = maxWidth / sourceWidth;
+    const heightScale = maxHeight / sourceHeight;
+    let scale = Math.min(widthScale, heightScale);
+
+    if (!allowUpscale) {
+      scale = Math.min(scale, 1);
+    }
+
+    targetWidth = Math.max(1, Math.round(sourceWidth * scale));
+    targetHeight = Math.max(1, Math.round(sourceHeight * scale));
+  }
+
+  return {
+    width: targetWidth,
+    height: targetHeight,
+  };
+};
+
 export default async (
   file: File,
   options?: GetPreviewFileDataOptions,
 ): Promise<FileData> => {
-  const maxWidth = options?.maxWidth ?? 320;
-  const maxHeight = options?.maxHeight ?? 320;
   const quality = options?.quality ?? 0.72;
   const type = options?.type ?? 'image/webp';
 
@@ -79,18 +173,11 @@ export default async (
       sourceHeight = image.naturalHeight || image.height;
     }
 
-    const scale = Math.min(
-      maxWidth / sourceWidth,
-      maxHeight / sourceHeight,
-      1,
-    );
-
-    const previewWidth = Math.max(1, Math.round(sourceWidth * scale));
-    const previewHeight = Math.max(1, Math.round(sourceHeight * scale));
+    const targetSize = calculateTargetSize(sourceWidth, sourceHeight, options);
 
     const canvas = document.createElement('canvas');
-    canvas.width = previewWidth;
-    canvas.height = previewHeight;
+    canvas.width = targetSize.width;
+    canvas.height = targetSize.height;
 
     const ctx = canvas.getContext('2d', {
       alpha: false,
@@ -103,7 +190,7 @@ export default async (
 
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(drawSource, 0, 0, previewWidth, previewHeight);
+    ctx.drawImage(drawSource, 0, 0, targetSize.width, targetSize.height);
 
     const blob = await canvasToBlob(canvas, type, quality);
     const src = URL.createObjectURL(blob);
@@ -113,8 +200,8 @@ export default async (
 
     return {
       src,
-      width: previewWidth,
-      height: previewHeight,
+      width: targetSize.width,
+      height: targetSize.height,
     };
   } finally {
     if (drawSource && 'close' in drawSource && typeof drawSource.close === 'function') {
