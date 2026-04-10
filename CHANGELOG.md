@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/uzenith360/file-upload-utils/compare/v1.0.1...v1.0.2) (2026-04-10)
+
+
+### Bug Fixes
+
+* optimization 0 ([387aaf8](https://github.com/uzenith360/file-upload-utils/commit/387aaf899b3076ef9c40095ca2a1974125ff4adc))
+
 ## [1.0.1](https://github.com/uzenith360/file-upload-utils/compare/v1.0.0...v1.0.1) (2026-04-10)
 
 
